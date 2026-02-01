@@ -166,3 +166,26 @@ Semi–open-world 2D web experience where the user plays a character in a 2D wor
 - Before adding features, check which phase they belong to and complete previous phases first.
 - When in doubt, prefer the smallest change that matches the phase “definition of done”.
 - Update the checkboxes in this file as phases/items are completed.
+
+frontend/src/components/GameView/
+  GameView.tsx              // root: canvas + overlays + hooks
+  engine/
+    types.ts                // MapDefinition, NPCDefinition, state types
+    useGameLoop.ts          // requestAnimationFrame loop
+    input.ts                // key state tracking
+    camera.ts               // camera follow + clamp + projection
+    collision.ts            // tile collider resolution
+    renderer.ts             // draw map layers + sprites + lighting
+    timeOfDay.ts            // day/night model
+  ui/
+    InteractionHint.tsx
+    DialogPanel.tsx
+    SpeechBubble.tsx
+    GlobalLogPanel.tsx
+  data/
+    npcs.ts                 // NPC definitions (pattern/personality/positions)
+    maps/
+      town.json
+  assets/
+    manifest.ts             // sprite sheet metadata
+    images/...              // generated art assets

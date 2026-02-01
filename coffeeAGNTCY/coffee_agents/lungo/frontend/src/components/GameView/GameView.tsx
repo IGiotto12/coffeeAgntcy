@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react"
+import React, { useRef, useEffect, useState, useCallback } from "react"
 import { PatternType, PATTERNS } from "@/utils/patternUtils"
 import { GameLoop } from "./engine/GameLoop"
 import { InputManager } from "./engine/InputManager"
@@ -7,7 +7,7 @@ import { AssetManager } from "./engine/AssetManager"
 import { TileMap } from "./engine/TileMap"
 import { Player } from "./engine/Player"
 import { Camera } from "./engine/Camera"
-import { NPC, NPCDefinition } from "./engine/NPC"
+import { NPC } from "./engine/NPC"
 import { InWorldUI } from "./ui/InWorldUI"
 
 interface GameViewProps {
@@ -35,15 +35,46 @@ const GameView: React.FC<GameViewProps> = ({
     // UI State
     const [nearbyNPC, setNearbyNPC] = useState<NPC | null>(null)
     const [isInteracting, setIsInteractingState] = useState(false)
+    const [activeNPC, setActiveNPC] = useState<NPC | null>(null) // The NPC currently being chatted with
 
     // State Refs for Loop access
     const nearbyNPCRef = useRef<NPC | null>(null)
     const isInteractingRef = useRef(false)
 
-    const setInteracting = (interacting: boolean) => {
+    // Find Supervisor NPC (for T key broadcast)
+    const getSupervisorNPC = useCallback((): NPC | null => {
+        return npcsRef.current.find(npc => npc.def.id === "supervisor") || null
+    }, [])
+
+    const setInteracting = (interacting: boolean, npc?: NPC | null) => {
         isInteractingRef.current = interacting
         setIsInteractingState(interacting)
+
+        // Update NPC chat state
+        if (interacting && npc) {
+            npc.startChat()
+            setActiveNPC(npc)
+        } else if (!interacting && activeNPC) {
+            activeNPC.endChat()
+            setActiveNPC(null)
+        }
     }
+
+    // T key handler for broadcast messaging
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // T key for broadcast (global chat to Supervisor)
+            if (e.code === "KeyT" && !isInteractingRef.current) {
+                const supervisor = getSupervisorNPC()
+                if (supervisor) {
+                    setInteracting(true, supervisor)
+                }
+            }
+        }
+
+        window.addEventListener("keydown", handleKeyDown)
+        return () => window.removeEventListener("keydown", handleKeyDown)
+    }, [getSupervisorNPC])
 
     useEffect(() => {
         if (!canvasRef.current || !containerRef.current) return
@@ -65,12 +96,12 @@ const GameView: React.FC<GameViewProps> = ({
             mapRef.current.worldHeight
         )
 
-        // NPC setup on walkable paths (away from fences)
+        // NPC setup - Supervisor is the main interactable (Auction Agent Buyer)
         npcsRef.current = [
             new NPC({
                 id: "supervisor",
-                name: "Supervisor",
-                pattern: PATTERNS.GROUP_COMMUNICATION,
+                name: "Coffee Buyer",
+                pattern: PATTERNS.PUBLISH_SUBSCRIBE, // Auction Agent Buyer pattern
                 x: 512,
                 y: 288,  // Top center on main road
                 spriteKey: "npc_supervisor",
@@ -117,7 +148,7 @@ const GameView: React.FC<GameViewProps> = ({
 
             // Proximity Check
             let closest: NPC | null = null
-            let minDist = 50 // Interaction radius
+            let minDist = 80 // Interaction radius
 
             for (const npc of npcsRef.current) {
                 const dist = Math.sqrt(
@@ -126,7 +157,7 @@ const GameView: React.FC<GameViewProps> = ({
                 )
                 if (dist < minDist) {
                     closest = npc
-                    break // Only one at a time
+                    minDist = dist
                 }
             }
 
@@ -136,11 +167,9 @@ const GameView: React.FC<GameViewProps> = ({
                 setNearbyNPC(closest)
             }
 
-            // Interaction Trigger
+            // Interaction Trigger (E key)
             if (closest && inputRef.current.isKeyDown("KeyE") && !isInteractingRef.current) {
-                setInteracting(true)
-                // inputRef.current.destroy() // Stop listening to reset keys? No, just clear keys
-                // actually we might want to keep inputManager alive but ignore updates
+                setInteracting(true, closest)
             }
 
             // Escape to cancel
@@ -191,6 +220,10 @@ const GameView: React.FC<GameViewProps> = ({
         }
     }, []) // Empty dependency array ensures this effect runs only once
 
+    const handleCloseUI = useCallback(() => {
+        setInteracting(false)
+    }, [])
+
     return (
         <div ref={containerRef} className="h-full w-full overflow-hidden bg-black relative">
             <canvas
@@ -199,32 +232,31 @@ const GameView: React.FC<GameViewProps> = ({
                 style={{ imageRendering: "pixelated" }}
             />
             {/* UI Overlay Layer */}
-            <div className="absolute top-4 left-4 text-white pointer-events-none opacity-50 font-mono text-sm">
+            <div className="absolute top-4 left-4 text-white pointer-events-none opacity-70 font-mono text-sm bg-black/50 p-2 rounded">
                 <p>WASD: Move</p>
-                <p>E: Interact</p>
+                <p>E: Interact (near NPC)</p>
+                <p>T: Talk to Buyer</p>
+                <p>Esc: Close</p>
             </div>
 
             {/* Interaction Hint */}
             {nearbyNPC && !isInteracting && (
                 <div
-                    className="absolute text-white bg-black/80 px-2 py-1 rounded border border-white/20 transform -translate-x-1/2 -translate-y-full pointer-events-none text-sm font-mono"
+                    className="absolute text-white bg-black/80 px-3 py-2 rounded border border-green-500/50 transform -translate-x-1/2 pointer-events-none text-sm font-mono shadow-lg"
                     style={{
-                        // We would ideally project world coords to screen, but for now just show at bottom or fixed
-                        // Implementing world-to-screen projection needed for floating labels?
-                        // Let's just put it at the bottom center or fixed position for now
                         left: "50%",
-                        bottom: "20%"
+                        bottom: "15%"
                     }}
                 >
-                    Press E to talk to {nearbyNPC.def.name}
+                    Press <span className="text-green-400 font-bold">E</span> to talk to {nearbyNPC.def.name}
                 </div>
             )}
 
             {/* Interaction Panel */}
-            {isInteracting && nearbyNPC && (
+            {isInteracting && activeNPC && (
                 <InWorldUI
-                    npc={nearbyNPC}
-                    onClose={() => setInteracting(false)}
+                    npc={activeNPC}
+                    onClose={handleCloseUI}
                 />
             )}
         </div>

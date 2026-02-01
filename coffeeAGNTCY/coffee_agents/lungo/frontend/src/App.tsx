@@ -25,7 +25,8 @@ import Navigation from "@/components/Navigation/Navigation"
 import MainArea from "@/components/MainArea/MainArea"
 import { useAgentAPI } from "@/hooks/useAgentAPI"
 import ChatArea from "@/components/Chat/ChatArea"
-import Sidebar from "@/components/Sidebar/Sidebar"
+import Sidebar, { ViewMode } from "@/components/Sidebar/Sidebar"
+import GameView from "@/components/GameView/GameView"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { Message } from "./types/message"
 import { getGraphConfig } from "@/utils/graphConfigs"
@@ -41,8 +42,9 @@ const App: React.FC = () => {
   const { sendMessage } = useAgentAPI()
 
   const [selectedPattern, setSelectedPattern] = useState<PatternType>(
-      PATTERNS.GROUP_COMMUNICATION,
+    PATTERNS.GROUP_COMMUNICATION,
   )
+  const [viewMode, setViewMode] = useState<ViewMode>("agent_ui")
 
   const startStreaming = useStartGroupStreaming()
   const { connect, reset } = useStreamingActions()
@@ -71,22 +73,22 @@ const App: React.FC = () => {
   const streamCompleteRef = useRef<boolean>(false)
 
   const handlePatternChange = useCallback(
-      (pattern: PatternType) => {
-        reset()
-        setShowAuctionStreaming(false)
-        resetGroup()
-        setGroupCommResponseReceived(false)
-        setShowFinalResponse(false)
-        setAgentResponse(undefined)
-        setPendingResponse("")
-        setIsAgentLoading(false)
-        setApiError(false)
-        setCurrentUserMessage("")
-        setButtonClicked(false)
-        setAiReplied(false)
-        setSelectedPattern(pattern)
-      },
-      [reset, resetGroup],
+    (pattern: PatternType) => {
+      reset()
+      setShowAuctionStreaming(false)
+      resetGroup()
+      setGroupCommResponseReceived(false)
+      setShowFinalResponse(false)
+      setAgentResponse(undefined)
+      setPendingResponse("")
+      setIsAgentLoading(false)
+      setApiError(false)
+      setCurrentUserMessage("")
+      setButtonClicked(false)
+      setAiReplied(false)
+      setSelectedPattern(pattern)
+    },
+    [reset, resetGroup],
   )
 
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -101,10 +103,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (selectedPattern === PATTERNS.PUBLISH_SUBSCRIBE_STREAMING) {
       if (
-          events.length > 0 &&
-          status !== "connecting" &&
-          status !== "streaming" &&
-          isAgentLoading
+        events.length > 0 &&
+        status !== "connecting" &&
+        status !== "streaming" &&
+        isAgentLoading
       ) {
         setIsAgentLoading(false)
       }
@@ -132,8 +134,8 @@ const App: React.FC = () => {
     setButtonClicked(true)
     setApiError(false)
     if (
-        selectedPattern !== PATTERNS.GROUP_COMMUNICATION &&
-        selectedPattern !== PATTERNS.PUBLISH_SUBSCRIBE_STREAMING
+      selectedPattern !== PATTERNS.GROUP_COMMUNICATION &&
+      selectedPattern !== PATTERNS.PUBLISH_SUBSCRIBE_STREAMING
     ) {
       setShowFinalResponse(true)
     }
@@ -141,34 +143,34 @@ const App: React.FC = () => {
 
   // Accepts ApiResponse or string (for error fallback), but always sets ApiResponse
   const handleApiResponse = useCallback(
-      (response: ApiResponse | string, isError: boolean = false) => {
-        let apiResp: ApiResponse
-        if (typeof response === "string") {
-          apiResp = { response }
-        } else {
-          apiResp = response
-        }
-        setAgentResponse(apiResp)
-        setIsAgentLoading(false)
+    (response: ApiResponse | string, isError: boolean = false) => {
+      let apiResp: ApiResponse
+      if (typeof response === "string") {
+        apiResp = { response }
+      } else {
+        apiResp = response
+      }
+      setAgentResponse(apiResp)
+      setIsAgentLoading(false)
 
-        if (selectedPattern === PATTERNS.GROUP_COMMUNICATION) {
-          setApiError(isError)
-          if (!isError) {
-            setGroupCommResponseReceived(true)
-          }
+      if (selectedPattern === PATTERNS.GROUP_COMMUNICATION) {
+        setApiError(isError)
+        if (!isError) {
+          setGroupCommResponseReceived(true)
         }
+      }
 
-        setMessages((prev) => {
-          const updated = [...prev]
-          updated[updated.length - 1] = {
-            ...updated[updated.length - 1],
-            content: apiResp.response,
-            animate: !isError,
-          }
-          return updated
-        })
-      },
-      [selectedPattern, setMessages],
+      setMessages((prev) => {
+        const updated = [...prev]
+        updated[updated.length - 1] = {
+          ...updated[updated.length - 1],
+          content: apiResp.response,
+          animate: !isError,
+        }
+        return updated
+      })
+    },
+    [selectedPattern, setMessages],
   )
 
   useEffect(() => {
@@ -243,7 +245,7 @@ const App: React.FC = () => {
       setIsAgentLoading(true)
       if (pendingResponse) {
         const isError =
-            pendingResponse.includes("error") || pendingResponse.includes("Error")
+          pendingResponse.includes("error") || pendingResponse.includes("Error")
         handleApiResponse(pendingResponse, isError)
         setPendingResponse("")
       }
@@ -264,19 +266,19 @@ const App: React.FC = () => {
   }
 
   const handleNodeHighlightSetup = useCallback(
-      (highlightFunction: (nodeId: string) => void) => {
-        setHighlightNodeFunction(() => highlightFunction)
-      },
-      [],
+    (highlightFunction: (nodeId: string) => void) => {
+      setHighlightNodeFunction(() => highlightFunction)
+    },
+    [],
   )
 
   const handleSenderHighlight = useCallback(
-      (nodeId: string) => {
-        if (highlightNodeFunction) {
-          highlightNodeFunction(nodeId)
-        }
-      },
-      [highlightNodeFunction],
+    (nodeId: string) => {
+      if (highlightNodeFunction) {
+        highlightNodeFunction(nodeId)
+      }
+    },
+    [highlightNodeFunction],
   )
 
   useEffect(() => {
@@ -298,17 +300,40 @@ const App: React.FC = () => {
   }, [selectedPattern, resetGroup])
 
   return (
-      <ThemeProvider>
-        <div className="bg-primary-bg flex h-screen w-screen flex-col overflow-hidden">
-          <Navigation />
-          <div className="flex flex-1 overflow-hidden">
+    <ThemeProvider>
+      <div className="bg-primary-bg flex h-screen w-screen flex-col overflow-hidden">
+        {viewMode !== "game_view" && <Navigation />}
+        <div className="flex flex-1 overflow-hidden">
+          {viewMode !== "game_view" && (
             <Sidebar
+              selectedPattern={selectedPattern}
+              onPatternChange={handlePatternChange}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+            />
+          )}
+
+          {viewMode === "game_view" ? (
+            <div className="relative h-full w-full bg-black">
+              <GameView
                 selectedPattern={selectedPattern}
                 onPatternChange={handlePatternChange}
-            />
+              />
+              {/* Floating Exit Button for Game View */}
+              <div className="absolute top-4 right-4 z-50">
+                <button
+                  onClick={() => setViewMode("agent_ui")}
+                  className="rounded-md bg-action-background px-4 py-2 text-sm font-medium text-white shadow-lg hover:bg-action-background/90 transition-colors border border-white/10"
+                >
+                  Exit Game View
+                </button>
+              </div>
+            </div>
+          ) : (
             <div className="flex flex-1 flex-col border-l border-action-background bg-app-background">
               <div className="relative flex-grow">
-                <MainArea
+                <div className="relative flex-grow">
+                  <MainArea
                     pattern={selectedPattern}
                     buttonClicked={buttonClicked}
                     setButtonClicked={setButtonClicked}
@@ -318,52 +343,54 @@ const App: React.FC = () => {
                     isExpanded={isExpanded}
                     groupCommResponseReceived={groupCommResponseReceived}
                     onNodeHighlight={handleNodeHighlightSetup}
-                />
+                  />
+                </div>
               </div>
               <div className="flex min-h-[76px] w-full flex-none flex-col items-center justify-center gap-0 bg-overlay-background p-0 md:min-h-[96px]">
                 <ChatArea
-                    setMessages={setMessages}
-                    setButtonClicked={setButtonClicked}
-                    setAiReplied={setAiReplied}
-                    isBottomLayout={true}
-                    showCoffeePrompts={
-                        selectedPattern === PATTERNS.PUBLISH_SUBSCRIBE ||
-                        selectedPattern === PATTERNS.PUBLISH_SUBSCRIBE_STREAMING
-                    }
-                    showLogisticsPrompts={
-                        selectedPattern === PATTERNS.GROUP_COMMUNICATION
-                    }
-                    showProgressTracker={showProgressTracker}
-                    showAuctionStreaming={showAuctionStreaming}
-                    showFinalResponse={showFinalResponse}
-                    onStreamComplete={handleStreamComplete}
-                    onSenderHighlight={handleSenderHighlight}
-                    pattern={selectedPattern}
-                    graphConfig={getGraphConfig(
-                        selectedPattern,
-                        groupCommResponseReceived,
-                    )}
-                    onDropdownSelect={handleDropdownSelect}
-                    onUserInput={handleUserInput}
-                    onApiResponse={handleApiResponse}
-                    onClearConversation={handleClearConversation}
-                    currentUserMessage={currentUserMessage}
-                    agentResponse={agentResponse}
-                    executionKey={executionKey}
-                    isAgentLoading={isAgentLoading}
-                    apiError={apiError}
-                    chatRef={chatRef}
-                    auctionState={{
-                      events,
-                      status,
-                      error,
-                    }}
+                  setMessages={setMessages}
+                  setButtonClicked={setButtonClicked}
+                  setAiReplied={setAiReplied}
+                  isBottomLayout={true}
+                  showCoffeePrompts={
+                    selectedPattern === PATTERNS.PUBLISH_SUBSCRIBE ||
+                    selectedPattern === PATTERNS.PUBLISH_SUBSCRIBE_STREAMING
+                  }
+                  showLogisticsPrompts={
+                    selectedPattern === PATTERNS.GROUP_COMMUNICATION
+                  }
+                  showProgressTracker={showProgressTracker}
+                  showAuctionStreaming={showAuctionStreaming}
+                  showFinalResponse={showFinalResponse}
+                  onStreamComplete={handleStreamComplete}
+                  onSenderHighlight={handleSenderHighlight}
+                  pattern={selectedPattern}
+                  graphConfig={getGraphConfig(
+                    selectedPattern,
+                    groupCommResponseReceived,
+                  )}
+                  onDropdownSelect={handleDropdownSelect}
+                  onUserInput={handleUserInput}
+                  onApiResponse={handleApiResponse}
+                  onClearConversation={handleClearConversation}
+                  currentUserMessage={currentUserMessage}
+                  agentResponse={agentResponse}
+                  executionKey={executionKey}
+                  isAgentLoading={isAgentLoading}
+                  apiError={apiError}
+                  chatRef={chatRef}
+                  auctionState={{
+                    events,
+                    status,
+                    error,
+                  }}
                 />
               </div>
             </div>
-          </div>
+          )}
         </div>
-      </ThemeProvider>
+      </div>
+    </ThemeProvider>
   )
 }
 

@@ -14,12 +14,18 @@ datasources:
       secure: false
       username: admin
       defaultDatabase: default
+      # Use query builder mode to ensure proper table references
+      usePOST: true
+      timeout: 60
+      validateJSON: true
 
       traces:
         defaultDatabase: default
         defaultTable: otel_traces
         otelEnabled: true
         otelVersion: latest
+        # Ensure table is fully qualified in queries
+        useTraceIdMode: false
         
         # Core columns
         traceIdColumn: TraceId

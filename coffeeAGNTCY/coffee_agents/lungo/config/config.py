@@ -11,6 +11,13 @@ TRANSPORT_SERVER_ENDPOINT = os.getenv("TRANSPORT_SERVER_ENDPOINT", "nats://local
 
 FARM_BROADCAST_TOPIC = os.getenv("FARM_BROADCAST_TOPIC", "farm_broadcast")
 
+# Scout Agent configuration
+SCOUT_PROBE_TIMEOUT_SEC = float(os.getenv("SCOUT_PROBE_TIMEOUT_SEC", "10.0"))  # Increased from 2.0 to 10.0 seconds
+SCOUT_INITIAL_TIMEOUT_SEC = float(os.getenv("SCOUT_INITIAL_TIMEOUT_SEC", "2.0"))  # Initial timeout for fast response
+SCOUT_RETRY_TIMEOUT_SEC = float(os.getenv("SCOUT_RETRY_TIMEOUT_SEC", "5.0"))  # Retry timeout for better results
+SCOUT_MIN_AVAILABLE_FARMS = int(os.getenv("SCOUT_MIN_AVAILABLE_FARMS", "2"))  # Minimum number of available farms for "usable" result
+SCOUT_ENABLED = os.getenv("SCOUT_ENABLED", "true").lower() in ("true", "1", "yes")
+
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 ## Oauth2 OpenAI Provider
 OAUTH2_CLIENT_ID= os.getenv("OAUTH2_CLIENT_ID", "")

@@ -13,6 +13,7 @@ import UserMessage from "./UserMessage"
 import ChatHeader from "./ChatHeader"
 import AgentIcon from "@/assets/Coffee_Icon.svg"
 import { useGroupSessionId } from "@/stores/groupStreamingStore"
+import { useStreamingSessionId } from "@/stores/auctionStreamingStore"
 
 import grafanaIcon from "@/assets/grafana.svg"
 import ExternalLinkButton from "./ExternalLinkButton"
@@ -174,7 +175,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
     // Build the Grafana URL with session_id if available
     const groupSessionId = useGroupSessionId()
-    const sessionIdForUrl = agentResponse?.session_id || groupSessionId
+    const streamingSessionId = useStreamingSessionId()
+    const sessionIdForUrl = agentResponse?.session_id || groupSessionId || streamingSessionId
 
     const grafanaSessionUrl = sessionIdForUrl
         ? `${grafanaUrl}${GRAFANA_DASHBOARD_PATH}${encodeURIComponent(sessionIdForUrl)}`
@@ -264,7 +266,26 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                                                             // className="ml-2.5 align-baseline inline-block mt-3"
                                                         />
                                                     )}
-
+                                                    {/* Scout Agent Retry Button */}
+                                                    {agentResponse?.response?.includes("QUALITY: NEEDS_RETRY") && !isAgentLoading && currentUserMessage && (
+                                                        <div className="mt-3 flex items-center gap-2">
+                                                            <button
+                                                                onClick={async () => {
+                                                                    if (onDropdownSelect) {
+                                                                        // Retry with longer timeout by appending instruction to use 5s timeout
+                                                                        const retryPrompt = `${currentUserMessage} (Please retry with timeout_sec=5.0 to get more farm responses)`
+                                                                        onDropdownSelect(retryPrompt)
+                                                                    }
+                                                                }}
+                                                                className="flex items-center gap-2 rounded-md border border-accent-primary bg-transparent px-3 py-1.5 text-sm font-medium text-accent-primary transition-colors hover:bg-accent-primary/10"
+                                                            >
+                                                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                                </svg>
+                                                                Retry with longer timeout (5s)
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </>
                                             )}
                                         </div>

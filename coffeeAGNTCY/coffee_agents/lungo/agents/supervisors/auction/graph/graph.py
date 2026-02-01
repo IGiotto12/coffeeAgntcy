@@ -18,9 +18,11 @@ from agents.supervisors.auction.graph.tools import (
     get_all_farms_yield_inventory_streaming,
     create_order,
     get_order_details,
+    scout_then_decide,
     tools_or_next
 )
 from common.llm import get_llm
+from config.config import DEFAULT_MESSAGE_TRANSPORT, SCOUT_INITIAL_TIMEOUT_SEC, SCOUT_RETRY_TIMEOUT_SEC
 
 logger = logging.getLogger("lungo.supervisor.graph")
 
@@ -88,7 +90,11 @@ class ExchangeGraph:
         workflow.add_node(NodeStates.INVENTORY_SINGLE_FARM, self._inventory_single_farm_node)
         workflow.add_node(NodeStates.INVENTORY_ALL_FARMS, self._inventory_all_farms_node)
         workflow.add_node(NodeStates.ORDERS, self._orders_node)
-        workflow.add_node(NodeStates.ORDERS_TOOLS, ToolNode([create_order, get_order_details]))
+        # Include scout_then_decide in ToolNode for NATS transport (non-streaming)
+        orders_tools_list = [create_order, get_order_details]
+        if DEFAULT_MESSAGE_TRANSPORT == "NATS":
+            orders_tools_list.append(scout_then_decide)
+        workflow.add_node(NodeStates.ORDERS_TOOLS, ToolNode(orders_tools_list))
         workflow.add_node(NodeStates.REFLECTION, self._reflection_node)
         workflow.add_node(NodeStates.GENERAL_INFO, self._general_response_node)
 
@@ -364,7 +370,11 @@ class ExchangeGraph:
         with retry logic for tool failures.
         """
         if not self.orders_llm:
-            self.orders_llm = get_llm().bind_tools([create_order, get_order_details])
+            # Include scout_then_decide for response-time optimization (only for NATS, not streaming)
+            tools = [create_order, get_order_details]
+            if DEFAULT_MESSAGE_TRANSPORT == "NATS":
+                tools.append(scout_then_decide)
+            self.orders_llm = get_llm().bind_tools(tools)
 
         # Extract the latest HumanMessage for the prompt
         user_msg = next((m for m in reversed(state["messages"]) if m.type == "human"), None)
@@ -390,32 +400,47 @@ class ExchangeGraph:
             for tool_msg in collected_tool_messages:
                 result_str = str(tool_msg.content) # Convert to string for keyword checking
 
-                # Check for failure keywords in each individual tool result
-                if "error" in result_str.lower() or \
-                   "failed" in result_str.lower() or \
-                   "timeout" in result_str.lower():
-                    any_tool_failed = True
-                    # Include tool name and ID for better context
-                    tool_results_summary.append(f"FAILURE for '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): The request could not be completed.")
-                    logger.warning(f"Detected tool failure in orders node result: {result_str}")
-
-                    if "auth" in result_str.lower():
-                        auth_failure = result_str
+                # Special handling for scout_then_decide: it returns a structured summary
+                # Check if ANY farm responded successfully (has "✓ Available")
+                if tool_msg.name == "scout_then_decide":
+                    # Scout Agent returns structured results - check if any farm succeeded
+                    has_success = "✓ Available" in result_str
+                    if has_success:
+                        # At least one farm responded - this is a SUCCESS (partial results are acceptable)
+                        tool_results_summary.append(f"SUCCESS from tool '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): Scout summary - {result_str}")
+                    else:
+                        # All farms failed - this is a failure, but still provide the summary
+                        any_tool_failed = True
+                        tool_results_summary.append(f"PARTIAL_FAILURE for '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): All farms had issues, but here's the summary: {result_str}")
+                        logger.warning(f"Scout Agent: All farms failed. Result: {result_str}")
                 else:
-                    tool_results_summary.append(f"SUCCESS from tool '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): {result_str}")
+                    # For other tools, use the original failure detection logic
+                    # Check for failure keywords in each individual tool result
+                    if "error" in result_str.lower() or \
+                       "failed" in result_str.lower() or \
+                       "timeout" in result_str.lower():
+                        any_tool_failed = True
+                        # Include tool name and ID for better context
+                        tool_results_summary.append(f"FAILURE for '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): The request could not be completed.")
+                        logger.warning(f"Detected tool failure in orders node result: {result_str}")
+                        
+                        if "auth" in result_str.lower():
+                            auth_failure = result_str
+                    else:
+                        tool_results_summary.append(f"SUCCESS from tool '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): {result_str}")
 
             context = "\n".join(tool_results_summary)
         else:
             context = "No previous tool execution context available."
 
-        prompt = PromptTemplate(
-            template="""You are an orders broker for a global coffee exchange company.
+        # Build prompt template with actual timeout values
+        prompt_template_str = f"""You are an orders broker for a global coffee exchange company.
             Your task is to handle user requests related to placing and checking orders with coffee farms.
 
-            User's current request: {user_message}
+            User's current request: {{user_message}}
 
             --- Context from previous tool execution (if any) ---
-            {tool_context}
+            {{tool_context}}
 
             --- Instructions for your response ---
             1.  **Process ALL tool results provided in the context.** This includes both successful and failed attempts. If the context contains error messages related to authentication or authorization, please note them specifically.
@@ -434,12 +459,37 @@ class ExchangeGraph:
 
             4.  **If there is no 'Previous tool call result' (i.e., this is the first attempt):**
                 *   Determine if a tool needs to be called to answer the user's question.
-                *   If the user asks about placing an order, use the `create_order` tool.
+                *   **For order requests with quantity/price, prefer using `scout_then_decide` with timeout_sec={SCOUT_INITIAL_TIMEOUT_SEC} to get a quick initial summary from all farms, then choose the best farm based on the summary.**
+                *   If the user asks about placing an order, you can use `scout_then_decide` first to probe all farms quickly, then use `create_order` with the chosen farm.
                 *   If the user asks about checking the status of an order, use the `get_order_details` tool.
                 *   If further information is needed to call a tool (e.g., missing order ID, quantity, farm), ask the user for clarification.
 
+            5.  **Special handling for scout_then_decide results:**
+                *   The Scout Agent returns a summary showing each farm's status (Available, No response, or Issue).
+                *   **IMPORTANT: For scout_then_decide results, you MUST show the user the complete summary with ALL farm responses.**
+                *   The summary format is: "Farm Name: Status - Response/Message"
+                *   **Check the QUALITY indicator at the end of the summary:**
+                    - If it shows "QUALITY: USABLE" - the result is good enough (at least 2 farms responded)
+                    - If it shows "QUALITY: NEEDS_RETRY" - the result needs improvement (less than 2 farms responded)
+                *   **Show the user the full Scout summary** so they can see:
+                    - Which farms responded and their actual responses (the full text from each farm)
+                    - Which farms timed out
+                    - Which farms had issues and what those issues were
+                    - The quality indicator showing if retry is recommended
+                *   **If the summary shows "QUALITY: NEEDS_RETRY"**, inform the user that they can retry with a longer timeout ({SCOUT_RETRY_TIMEOUT_SEC}s) to get more responses.
+                *   **If the summary shows ANY farm with "✓ Available"**, recommend the best option based on the farm responses.
+                *   **If ALL farms show "⏱ No response" or "✗ Issue"**, show the complete summary and explain what happened to each farm, then suggest:
+                    - Retrying with a longer timeout ({SCOUT_RETRY_TIMEOUT_SEC}s) to wait for slower farms
+                    - Trying again in a moment
+                    - Checking if farm services are running
+                    - Using a different approach (e.g., direct farm query)
+                *   **DO NOT summarize or hide the Scout Agent summary - show it to the user so they can see all farm responses.**
+
             Your final response should be a conclusive answer to the user's request, or a clear explanation if the request cannot be fulfilled.
-            """,
+            """
+
+        prompt = PromptTemplate(
+            template=prompt_template_str,
             input_variables=["user_message", "tool_context"]
         )
 

@@ -46,6 +46,7 @@ exchange_graph = ExchangeGraph()
 
 class PromptRequest(BaseModel):
   prompt: str
+  scout_timeout: float | None = None  # Optional timeout for scout agent (in seconds)
 
 @app.get("/.well-known/agent.json")
 async def get_capabilities():
@@ -190,7 +191,7 @@ async def get_prompts(pattern: str = "default"):
                      Use "default" for all prompts or "streaming" for streaming-specific prompts.
 
   Returns:
-      dict: A dictionary containing lists of prompts for "buyer" and "purchaser".
+      dict: A dictionary containing lists of prompts for "buyer", "purchaser", and "scout".
 
   Raises:
       HTTPException:
@@ -207,7 +208,8 @@ async def get_prompts(pattern: str = "default"):
 
     buyer_prompts = data.get("buyer", [])
     purchaser_prompts = data.get("purchaser", [])
-    return {"buyer": buyer_prompts, "purchaser": purchaser_prompts}
+    scout_prompts = data.get("scout", [])
+    return {"buyer": buyer_prompts, "purchaser": purchaser_prompts, "scout": scout_prompts}
 
   except Exception as e:
     logger.error(f"Unexpected error while reading prompts: {str(e)}")

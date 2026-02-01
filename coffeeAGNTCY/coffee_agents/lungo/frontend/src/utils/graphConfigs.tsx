@@ -63,6 +63,25 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
       position: { x: 527.1332569384248, y: 76.4805787605829 },
     },
     {
+      id: NODE_IDS.SCOUT_AGENT,
+      type: NODE_TYPES.CUSTOM,
+      data: {
+        icon: (
+          <img
+            src={supervisorIcon}
+            alt="Scout Agent Icon"
+            className="dark-icon h-4 w-4 object-contain opacity-80"
+          />
+        ),
+        label1: "Scout Agent",
+        label2: "Probe & Decide",
+        handles: HANDLE_TYPES.ALL,
+        verificationStatus: VERIFICATION_STATUS.VERIFIED,
+        githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.supervisorAuction}`,
+      },
+      position: { x: 527.1332569384248, y: 180 },
+    },
+    {
       id: NODE_IDS.TRANSPORT,
       type: NODE_TYPES.TRANSPORT,
       data: {
@@ -153,8 +172,16 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
   ],
   edges: [
     {
-      id: EDGE_IDS.AUCTION_TO_TRANSPORT,
+      id: EDGE_IDS.AUCTION_TO_SCOUT,
       source: NODE_IDS.AUCTION_AGENT,
+      target: NODE_IDS.SCOUT_AGENT,
+      targetHandle: "top",
+      data: { label: EDGE_LABELS.A2A },
+      type: EDGE_TYPES.CUSTOM,
+    },
+    {
+      id: EDGE_IDS.SCOUT_TO_TRANSPORT,
+      source: NODE_IDS.SCOUT_AGENT,
       target: NODE_IDS.TRANSPORT,
       targetHandle: "top",
       data: { label: EDGE_LABELS.A2A },
@@ -197,7 +224,9 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
   ],
   animationSequence: [
     { ids: [NODE_IDS.AUCTION_AGENT] },
-    { ids: [EDGE_IDS.AUCTION_TO_TRANSPORT] },
+    { ids: [EDGE_IDS.AUCTION_TO_SCOUT] },
+    { ids: [NODE_IDS.SCOUT_AGENT] },
+    { ids: [EDGE_IDS.SCOUT_TO_TRANSPORT] },
     { ids: [NODE_IDS.TRANSPORT] },
     {
       ids: [
@@ -390,52 +419,75 @@ export const getGraphConfig = (
 ): GraphConfig => {
   switch (pattern) {
     case "publish_subscribe":
+      // Return config with Scout Agent (only for non-streaming NATS)
       return {
         ...PUBLISH_SUBSCRIBE_CONFIG,
         nodes: [...PUBLISH_SUBSCRIBE_CONFIG.nodes],
         edges: [...PUBLISH_SUBSCRIBE_CONFIG.edges],
       }
     case "publish_subscribe_streaming": {
+      // Streaming version: remove Scout Agent, use direct Auction->Transport connection
       const streamingConfig = {
         ...PUBLISH_SUBSCRIBE_CONFIG,
-        nodes: PUBLISH_SUBSCRIBE_CONFIG.nodes.map((node) => {
-          if (node.id === NODE_IDS.AUCTION_AGENT) {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.supervisorAuctionStreaming}`,
-              },
-            }
-          } else if (node.id === NODE_IDS.BRAZIL_FARM) {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.brazilFarmStreaming}`,
-              },
-            }
-          } else if (node.id === NODE_IDS.COLOMBIA_FARM) {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.colombiaFarmStreaming}`,
-              },
-            }
-          } else if (node.id === NODE_IDS.VIETNAM_FARM) {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.vietnamFarmStreaming}`,
-              },
-            }
-          }
-          return node
-        }),
-        edges: [...PUBLISH_SUBSCRIBE_CONFIG.edges],
+        nodes: PUBLISH_SUBSCRIBE_CONFIG.nodes.filter((node) => node.id !== NODE_IDS.SCOUT_AGENT),
+        edges: PUBLISH_SUBSCRIBE_CONFIG.edges
+          .filter((edge) => edge.id !== EDGE_IDS.AUCTION_TO_SCOUT && edge.id !== EDGE_IDS.SCOUT_TO_TRANSPORT)
+          .concat([
+            {
+              id: EDGE_IDS.AUCTION_TO_TRANSPORT,
+              source: NODE_IDS.AUCTION_AGENT,
+              target: NODE_IDS.TRANSPORT,
+              targetHandle: "top",
+              data: { label: EDGE_LABELS.A2A },
+              type: EDGE_TYPES.CUSTOM,
+            },
+          ]),
+        animationSequence: PUBLISH_SUBSCRIBE_CONFIG.animationSequence.map((step) => ({
+          ids: step.ids.filter((id) => id !== NODE_IDS.SCOUT_AGENT && id !== EDGE_IDS.AUCTION_TO_SCOUT && id !== EDGE_IDS.SCOUT_TO_TRANSPORT),
+        })).filter((step) => step.ids.length > 0)
+          .concat([
+            { ids: [NODE_IDS.AUCTION_AGENT] },
+            { ids: [EDGE_IDS.AUCTION_TO_TRANSPORT] },
+            { ids: [NODE_IDS.TRANSPORT] },
+          ]),
       }
+      // Update node links for streaming version
+      streamingConfig.nodes = streamingConfig.nodes.map((node) => {
+        if (node.id === NODE_IDS.AUCTION_AGENT) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.supervisorAuctionStreaming}`,
+            },
+          }
+        } else if (node.id === NODE_IDS.BRAZIL_FARM) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.brazilFarmStreaming}`,
+            },
+          }
+        } else if (node.id === NODE_IDS.COLOMBIA_FARM) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.colombiaFarmStreaming}`,
+            },
+          }
+        } else if (node.id === NODE_IDS.VIETNAM_FARM) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.vietnamFarmStreaming}`,
+            },
+          }
+        }
+        return node
+      })
       return streamingConfig
     }
     case "group_communication":

@@ -27,6 +27,28 @@
       "description": "With Identity TBAC enabled, this prompt verifies tool-level policies. Uses direct communication with the Colombia farm."
     }
   ],
+  "scout": [
+    {
+      "prompt": "I need 50 lbs of coffee at $0.50 per lb. Which farm can fulfill this quickly?",
+      "description": "Uses Scout Agent to probe all farms in parallel with a 10-second timeout per farm. Returns a summary of which farms responded, timed out, or errored, allowing quick decision-making without waiting for slow farms."
+    },
+    {
+      "prompt": "Can you find me 100 lbs of coffee at $0.55/lb? I need it fast.",
+      "description": "Demonstrates Scout Agent's response-time optimization by probing Brazil, Colombia, and Vietnam simultaneously. The Scout returns a summary within 10 seconds per farm, enabling the supervisor to choose the best available option quickly."
+    },
+    {
+      "prompt": "I want to order 75 lbs at $0.48/lb. Check all farms and pick the best one.",
+      "description": "Scout Agent probes all farms in parallel. If a farm times out or errors, it's excluded from consideration. The supervisor then selects from farms that responded successfully within the 10-second timeout window."
+    },
+    {
+      "prompt": "Need 150 lbs of coffee at $0.52 per pound. Which farms are available right now?",
+      "description": "Scout Agent performs parallel probes with timeout handling. Farms that respond within 10 seconds are included in the summary; slow or unresponsive farms are marked as timeout, allowing immediate decision-making."
+    },
+    {
+      "prompt": "I prefer Colombia, but check all farms for 80 lbs at $0.50/lb availability",
+      "description": "Scout Agent probes all farms in parallel, with preference for Colombia. If Colombia responds successfully, it's preferred; otherwise, the supervisor can choose from other available farms based on the Scout summary."
+    }
+  ],
   "streaming_prompts": [
     {
       "prompt": "What yield do the farms have?",

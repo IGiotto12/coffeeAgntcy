@@ -27,6 +27,7 @@ export const FarmName = {
 export const NODE_IDS = {
   AUCTION_AGENT: "1",
   SCOUT_AGENT: "1.5",
+  MARKET_AGENT: "1.7",
   TRANSPORT: "2",
   BRAZIL_FARM: "3",
   COLOMBIA_FARM: "4",
@@ -39,6 +40,8 @@ export const NODE_IDS = {
 export const EDGE_IDS = {
   AUCTION_TO_TRANSPORT: "1-2",
   AUCTION_TO_SCOUT: "1-1.5",
+  SCOUT_TO_MARKET: "1.5-1.7",
+  MARKET_TO_TRANSPORT: "1.7-2",
   SCOUT_TO_TRANSPORT: "1.5-2",
   TRANSPORT_TO_BRAZIL: "2-3",
   TRANSPORT_TO_COLOMBIA: "2-4",

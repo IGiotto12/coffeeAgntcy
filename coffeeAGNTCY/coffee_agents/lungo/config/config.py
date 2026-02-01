@@ -18,6 +18,16 @@ SCOUT_RETRY_TIMEOUT_SEC = float(os.getenv("SCOUT_RETRY_TIMEOUT_SEC", "5.0"))  # 
 SCOUT_MIN_AVAILABLE_FARMS = int(os.getenv("SCOUT_MIN_AVAILABLE_FARMS", "2"))  # Minimum number of available farms for "usable" result
 SCOUT_ENABLED = os.getenv("SCOUT_ENABLED", "true").lower() in ("true", "1", "yes")
 
+# Performance Analyzer configuration
+PERFORMANCE_ANALYZER_ENABLED = os.getenv("PERFORMANCE_ANALYZER_ENABLED", "true").lower() in ("true", "1", "yes")
+PERFORMANCE_CACHE_TTL = int(os.getenv("PERFORMANCE_CACHE_TTL", "300"))  # 5 minutes
+DYNAMIC_TIMEOUT_ENABLED = os.getenv("DYNAMIC_TIMEOUT_ENABLED", "true").lower() in ("true", "1", "yes")
+CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "9000"))
+CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "admin")
+CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "admin")
+CLICKHOUSE_DATABASE = os.getenv("CLICKHOUSE_DATABASE", "default")
+
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 ## Oauth2 OpenAI Provider
 OAUTH2_CLIENT_ID= os.getenv("OAUTH2_CLIENT_ID", "")

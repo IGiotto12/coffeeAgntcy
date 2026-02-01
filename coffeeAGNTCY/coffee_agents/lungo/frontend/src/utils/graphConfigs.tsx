@@ -60,7 +60,7 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
         githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.supervisorAuction}`,
         agentDirectoryLink: `${urlsConfig.agentDirectory.baseUrl}${urlsConfig.agentDirectory.agents.supervisorAuction}`,
       },
-      position: { x: 527.1332569384248, y: 76.4805787605829 },
+      position: { x: 300, y: 50 },
     },
     {
       id: NODE_IDS.SCOUT_AGENT,
@@ -79,7 +79,26 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
         verificationStatus: VERIFICATION_STATUS.VERIFIED,
         githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.supervisorAuction}`,
       },
-      position: { x: 527.1332569384248, y: 180 },
+      position: { x: 600, y: 50 },
+    },
+    {
+      id: NODE_IDS.MARKET_AGENT,
+      type: NODE_TYPES.CUSTOM,
+      data: {
+        icon: (
+          <img
+            src={supervisorIcon}
+            alt="Market Agent Icon"
+            className="dark-icon h-4 w-4 object-contain opacity-70"
+          />
+        ),
+        label1: "Market Agent",
+        label2: "Analyze & Score",
+        handles: HANDLE_TYPES.ALL,
+        verificationStatus: VERIFICATION_STATUS.VERIFIED,
+        githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.supervisorAuction}`,
+      },
+      position: { x: 300, y: 150 },
     },
     {
       id: NODE_IDS.TRANSPORT,
@@ -88,7 +107,7 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
         label: "Transport: ",
         githubLink: `${urlsConfig.github.appSdkBaseUrl}${urlsConfig.github.transports.general}`,
       },
-      position: { x: 229.02370449534635, y: 284.688426426175 },
+      position: { x: 300, y: 250 },
     },
     {
       id: NODE_IDS.BRAZIL_FARM,
@@ -104,7 +123,7 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
         agentDirectoryLink: `${urlsConfig.agentDirectory.baseUrl}${urlsConfig.agentDirectory.agents.brazilFarm}`,
       },
 
-      position: { x: 232.0903941835277, y: 503.93174725714437 },
+      position: { x: 150, y: 400 },
     },
     {
       id: NODE_IDS.COLOMBIA_FARM,
@@ -121,7 +140,7 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
         githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.colombiaFarm}`,
         agentDirectoryLink: `${urlsConfig.agentDirectory.baseUrl}${urlsConfig.agentDirectory.agents.colombiaFarm}`,
       },
-      position: { x: 521.266082170288, y: 505.38817113883306 },
+      position: { x: 400, y: 400 },
     },
     {
       id: NODE_IDS.VIETNAM_FARM,
@@ -138,7 +157,7 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
         githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.vietnamFarm}`,
         agentDirectoryLink: `${urlsConfig.agentDirectory.baseUrl}${urlsConfig.agentDirectory.agents.vietnamFarm}`,
       },
-      position: { x: 832.9824511707582, y: 505.08339631990395 },
+      position: { x: 650, y: 400 },
     },
     {
       id: NODE_IDS.WEATHER_MCP,
@@ -151,7 +170,7 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
         githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.weatherMcp}`,
         agentDirectoryLink: `${urlsConfig.agentDirectory.baseUrl}${urlsConfig.agentDirectory.agents.weatherMcp}`,
       },
-      position: { x: 371.266082170288, y: 731.9104402412228 },
+      position: { x: 300, y: 550 },
     },
     {
       id: NODE_IDS.PAYMENT_MCP,
@@ -167,7 +186,7 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
         githubLink: `${urlsConfig.github.baseUrl}${urlsConfig.github.agents.paymentMcp}`,
         agentDirectoryLink: urlsConfig.agentDirectory.baseUrl,
       },
-      position: { x: 671.266082170288, y: 731.9104402412228 },
+      position: { x: 500, y: 550 },
     },
   ],
   edges: [
@@ -180,8 +199,16 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
       type: EDGE_TYPES.CUSTOM,
     },
     {
-      id: EDGE_IDS.SCOUT_TO_TRANSPORT,
+      id: EDGE_IDS.SCOUT_TO_MARKET,
       source: NODE_IDS.SCOUT_AGENT,
+      target: NODE_IDS.MARKET_AGENT,
+      targetHandle: "top",
+      data: { label: EDGE_LABELS.A2A },
+      type: EDGE_TYPES.CUSTOM,
+    },
+    {
+      id: EDGE_IDS.MARKET_TO_TRANSPORT,
+      source: NODE_IDS.MARKET_AGENT,
       target: NODE_IDS.TRANSPORT,
       targetHandle: "top",
       data: { label: EDGE_LABELS.A2A },
@@ -226,7 +253,9 @@ const PUBLISH_SUBSCRIBE_CONFIG: GraphConfig = {
     { ids: [NODE_IDS.AUCTION_AGENT] },
     { ids: [EDGE_IDS.AUCTION_TO_SCOUT] },
     { ids: [NODE_IDS.SCOUT_AGENT] },
-    { ids: [EDGE_IDS.SCOUT_TO_TRANSPORT] },
+    { ids: [EDGE_IDS.SCOUT_TO_MARKET] },
+    { ids: [NODE_IDS.MARKET_AGENT] },
+    { ids: [EDGE_IDS.MARKET_TO_TRANSPORT] },
     { ids: [NODE_IDS.TRANSPORT] },
     {
       ids: [
@@ -426,30 +455,12 @@ export const getGraphConfig = (
         edges: [...PUBLISH_SUBSCRIBE_CONFIG.edges],
       }
     case "publish_subscribe_streaming": {
-      // Streaming version: remove Scout Agent, use direct Auction->Transport connection
+      // Streaming version: Keep Scout Agent and Market Agent (same as non-streaming)
       const streamingConfig = {
         ...PUBLISH_SUBSCRIBE_CONFIG,
-        nodes: PUBLISH_SUBSCRIBE_CONFIG.nodes.filter((node) => node.id !== NODE_IDS.SCOUT_AGENT),
-        edges: PUBLISH_SUBSCRIBE_CONFIG.edges
-          .filter((edge) => edge.id !== EDGE_IDS.AUCTION_TO_SCOUT && edge.id !== EDGE_IDS.SCOUT_TO_TRANSPORT)
-          .concat([
-            {
-              id: EDGE_IDS.AUCTION_TO_TRANSPORT,
-              source: NODE_IDS.AUCTION_AGENT,
-              target: NODE_IDS.TRANSPORT,
-              targetHandle: "top",
-              data: { label: EDGE_LABELS.A2A },
-              type: EDGE_TYPES.CUSTOM,
-            },
-          ]),
-        animationSequence: PUBLISH_SUBSCRIBE_CONFIG.animationSequence.map((step) => ({
-          ids: step.ids.filter((id) => id !== NODE_IDS.SCOUT_AGENT && id !== EDGE_IDS.AUCTION_TO_SCOUT && id !== EDGE_IDS.SCOUT_TO_TRANSPORT),
-        })).filter((step) => step.ids.length > 0)
-          .concat([
-            { ids: [NODE_IDS.AUCTION_AGENT] },
-            { ids: [EDGE_IDS.AUCTION_TO_TRANSPORT] },
-            { ids: [NODE_IDS.TRANSPORT] },
-          ]),
+        nodes: [...PUBLISH_SUBSCRIBE_CONFIG.nodes], // Keep all nodes including Scout and Market Agent
+        edges: [...PUBLISH_SUBSCRIBE_CONFIG.edges], // Keep all edges including Scout and Market Agent
+        animationSequence: [...PUBLISH_SUBSCRIBE_CONFIG.animationSequence], // Keep same animation sequence
       }
       // Update node links for streaming version
       streamingConfig.nodes = streamingConfig.nodes.map((node) => {

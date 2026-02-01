@@ -29,3 +29,22 @@ class CreateOrderArgs(BaseModel):
         ...,
         description="The price of the order. Must be a positive float."
     )
+
+class MarketAuctionArgs(BaseModel):
+    """Arguments for the conduct_market_auction tool."""
+    quantity: int = Field(
+        ...,
+        description="The quantity of coffee needed in pounds. Must be a positive integer."
+    )
+    max_price: float = Field(
+        None,
+        description="Maximum acceptable price per pound (optional). If not provided, will accept any price."
+    )
+    max_delivery_days: int = Field(
+        None,
+        description="Maximum acceptable delivery time in days (optional). If not provided, will accept any delivery time."
+    )
+    quality_requirement: float = Field(
+        None,
+        description="Minimum quality score required (0.0 to 1.0, optional). If not provided, will accept any quality."
+    )

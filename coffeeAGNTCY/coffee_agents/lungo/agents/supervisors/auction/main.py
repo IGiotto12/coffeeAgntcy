@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import time
+from datetime import datetime, timezone
+from dataclasses import asdict
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -21,6 +24,7 @@ from pathlib import Path
 from common.version import get_version_info
 from agents.supervisors.auction.api import create_apps_router
 from fastapi import HTTPException
+from services.performance_analyzer import get_performance_analyzer
 
 setup_logging()
 logger = logging.getLogger("lungo.supervisor.main")
@@ -209,11 +213,60 @@ async def get_prompts(pattern: str = "default"):
     buyer_prompts = data.get("buyer", [])
     purchaser_prompts = data.get("purchaser", [])
     scout_prompts = data.get("scout", [])
-    return {"buyer": buyer_prompts, "purchaser": purchaser_prompts, "scout": scout_prompts}
+    market_auction_prompts = data.get("market_auction", [])
+    return {
+        "buyer": buyer_prompts, 
+        "purchaser": purchaser_prompts, 
+        "scout": scout_prompts,
+        "market_auction": market_auction_prompts
+    }
 
   except Exception as e:
     logger.error(f"Unexpected error while reading prompts: {str(e)}")
     raise HTTPException(status_code=500, detail="An unexpected error occurred while reading prompts.")
+
+
+@app.get("/agent/performance-metrics")
+def get_performance_metrics(force_refresh: bool = False, use_realtime: bool = True):
+    """
+    Get performance metrics for all farms.
+    Combines real-time tracking (in-memory) with historical data (ClickHouse).
+    
+    This endpoint provides performance analytics including:
+    - Response time statistics (avg, P50, P95, P99)
+    - Success rates
+    - Stability scores
+    - Recommended timeouts for each farm
+    
+    Args:
+        force_refresh: If True, bypass cache and fetch fresh data from ClickHouse
+        use_realtime: If True, include real-time tracker data (default: True)
+        
+    Returns:
+        JSON object with performance metrics for each farm
+    """
+    try:
+        analyzer = get_performance_analyzer()
+        metrics = analyzer.get_farm_performance(force_refresh=force_refresh, use_realtime=use_realtime)
+        
+        # Get real-time tracker stats for additional info
+        try:
+            from services.realtime_performance_tracker import get_realtime_tracker
+            tracker = get_realtime_tracker()
+            tracker_stats = tracker.get_stats_summary()
+        except Exception:
+            tracker_stats = {}
+        
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "cache_age_seconds": time.time() - analyzer._cache_timestamp if hasattr(analyzer, '_cache_timestamp') and analyzer._cache_timestamp else 0,
+            "realtime_tracker_stats": tracker_stats,
+            "farms": {farm: asdict(metric) for farm, metric in metrics.items()}
+        }
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get performance metrics: {str(e)}")
+
 
 # Run the FastAPI server using uvicorn
 if __name__ == "__main__":

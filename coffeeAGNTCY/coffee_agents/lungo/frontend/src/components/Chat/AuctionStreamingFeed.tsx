@@ -79,9 +79,15 @@ const AuctionStreamingFeed: React.FC<AuctionStreamingFeedProps> = ({
 
         <div className="mt-3 flex w-full flex-col items-start gap-3">
           {events.map((event, index) => {
+            // Check if this is an intermediate farm response (short, single farm format)
+            const isFarmResponse = event.response.match(/^(Brazil|Colombia|Vietnam):\s*(✓|⏱|🔒|✗)/)
             const isLastEvent = isComplete && index === events.length - 1
-            const label = isLastEvent
+            const isFinalResponse = isLastEvent && !isFarmResponse && event.response.length > 200
+            
+            const label = isFinalResponse
               ? "Final response:"
+              : isFarmResponse
+              ? "Farm response:"
               : `Response ${index + 1}:`
 
             return (
@@ -93,8 +99,17 @@ const AuctionStreamingFeed: React.FC<AuctionStreamingFeedProps> = ({
                   <img src={CheckCircle} alt="Complete" className="h-4 w-4" />
                 </div>
                 <div className="flex-1">
-                  <div className="font-inter text-sm leading-[18px] text-chat-text">
-                    <span className="font-bold">{label}</span> {event.response}
+                  <div className="font-inter text-sm leading-[18px] text-chat-text whitespace-pre-wrap">
+                    {isFinalResponse ? (
+                      <>
+                        <span className="font-bold">{label}</span>
+                        <div className="mt-1">{event.response}</div>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-bold">{label}</span> {event.response}
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

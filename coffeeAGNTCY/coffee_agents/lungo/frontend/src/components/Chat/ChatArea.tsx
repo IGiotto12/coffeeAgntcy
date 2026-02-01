@@ -22,6 +22,7 @@ import { cn } from "@/utils/cn.ts"
 import { logger } from "@/utils/logger"
 import GroupCommunicationFeed from "./GroupCommunicationFeed"
 import AuctionStreamingFeed from "./AuctionStreamingFeed"
+import RealtimeDataIndicator from "./RealtimeDataIndicator"
 import axios from "axios";
 
 const DEFAULT_GRAFANA_URL = "http://127.0.0.1:3001"
@@ -267,13 +268,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                                                         />
                                                     )}
                                                     {/* Scout Agent Retry Button */}
-                                                    {agentResponse?.response?.includes("QUALITY: NEEDS_RETRY") && !isAgentLoading && currentUserMessage && (
+                                                    {(agentResponse?.response?.includes("QUALITY: NEEDS_RETRY") || 
+                                                      agentResponse?.response?.includes("needs retry") ||
+                                                      agentResponse?.response?.includes("retry with a longer timeout") ||
+                                                      (agentResponse?.response?.includes("No response") && agentResponse?.response?.includes("farm"))) && 
+                                                     !isAgentLoading && currentUserMessage && (
                                                         <div className="mt-3 flex items-center gap-2">
                                                             <button
                                                                 onClick={async () => {
                                                                     if (onDropdownSelect) {
-                                                                        // Retry with longer timeout by appending instruction to use 5s timeout
-                                                                        const retryPrompt = `${currentUserMessage} (Please retry with timeout_sec=5.0 to get more farm responses)`
+                                                                        // Retry with longer timeout (5 seconds)
+                                                                        const SCOUT_RETRY_TIMEOUT = 5.0
+                                                                        const retryPrompt = `${currentUserMessage} (Please retry with timeout_sec=${SCOUT_RETRY_TIMEOUT} to get more farm responses)`
                                                                         onDropdownSelect(retryPrompt)
                                                                     }
                                                                 }}
@@ -344,6 +350,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     </div>
                 </div>
             </div>
+            
+            {/* Real-time Data Collection Indicator */}
+            {showCoffeePrompts && <RealtimeDataIndicator />}
         </div>
     )
 }

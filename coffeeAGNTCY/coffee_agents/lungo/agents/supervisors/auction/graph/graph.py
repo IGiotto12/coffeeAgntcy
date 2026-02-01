@@ -19,6 +19,8 @@ from agents.supervisors.auction.graph.tools import (
     create_order,
     get_order_details,
     scout_then_decide,
+    scout_then_market_analyze_then_decide,
+    conduct_market_auction,
     tools_or_next
 )
 from common.llm import get_llm
@@ -90,10 +92,13 @@ class ExchangeGraph:
         workflow.add_node(NodeStates.INVENTORY_SINGLE_FARM, self._inventory_single_farm_node)
         workflow.add_node(NodeStates.INVENTORY_ALL_FARMS, self._inventory_all_farms_node)
         workflow.add_node(NodeStates.ORDERS, self._orders_node)
-        # Include scout_then_decide in ToolNode for NATS transport (non-streaming)
-        orders_tools_list = [create_order, get_order_details]
+        # Include scout_then_market_analyze_then_decide for combined Scout + Market analysis (for NATS, both streaming and non-streaming)
+        # Include scout_then_decide as fallback
+        # Include conduct_market_auction for competitive bidding
+        orders_tools_list = [create_order, get_order_details, conduct_market_auction]
         if DEFAULT_MESSAGE_TRANSPORT == "NATS":
-            orders_tools_list.append(scout_then_decide)
+            orders_tools_list.append(scout_then_market_analyze_then_decide)
+            orders_tools_list.append(scout_then_decide)  # Keep as fallback
         workflow.add_node(NodeStates.ORDERS_TOOLS, ToolNode(orders_tools_list))
         workflow.add_node(NodeStates.REFLECTION, self._reflection_node)
         workflow.add_node(NodeStates.GENERAL_INFO, self._general_response_node)
@@ -370,10 +375,14 @@ class ExchangeGraph:
         with retry logic for tool failures.
         """
         if not self.orders_llm:
-            # Include scout_then_decide for response-time optimization (only for NATS, not streaming)
-            tools = [create_order, get_order_details]
+            # Include scout_then_market_analyze_then_decide for combined Scout + Market analysis (for NATS, both streaming and non-streaming)
+            # Include scout_then_decide as fallback
+            # Include conduct_market_auction for competitive bidding
+            from agents.supervisors.auction.graph.tools import scout_then_market_analyze_then_decide
+            tools = [create_order, get_order_details, conduct_market_auction]
             if DEFAULT_MESSAGE_TRANSPORT == "NATS":
-                tools.append(scout_then_decide)
+                tools.append(scout_then_market_analyze_then_decide)
+                tools.append(scout_then_decide)  # Keep as fallback
             self.orders_llm = get_llm().bind_tools(tools)
 
         # Extract the latest HumanMessage for the prompt
@@ -400,33 +409,64 @@ class ExchangeGraph:
             for tool_msg in collected_tool_messages:
                 result_str = str(tool_msg.content) # Convert to string for keyword checking
 
-                # Special handling for scout_then_decide: it returns a structured summary
-                # Check if ANY farm responded successfully (has "✓ Available")
-                if tool_msg.name == "scout_then_decide":
-                    # Scout Agent returns structured results - check if any farm succeeded
+                # Special handling for scout_then_decide, scout_then_market_analyze_then_decide, and conduct_market_auction
+                # These tools return structured summaries with farm status
+                if tool_msg.name in ("scout_then_decide", "scout_then_market_analyze_then_decide", "conduct_market_auction"):
+                    # Scout/Market Agent returns structured results - check if any farm succeeded
                     has_success = "✓ Available" in result_str
-                    if has_success:
-                        # At least one farm responded - this is a SUCCESS (partial results are acceptable)
-                        tool_results_summary.append(f"SUCCESS from tool '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): Scout summary - {result_str}")
-                    else:
-                        # All farms failed - this is a failure, but still provide the summary
+                    # Also check for QUALITY: USABLE indicator
+                    is_usable = "QUALITY: USABLE" in result_str or "QUALITY: USABLE" in result_str.upper()
+                    
+                    # Check for actual failure patterns (not just keywords that might appear in successful responses)
+                    # Only consider it a failure if:
+                    # 1. No farms succeeded AND
+                    # 2. Result explicitly indicates failure (NOT USABLE, or all farms have error/timeout status)
+                    has_explicit_failure = (
+                        "QUALITY: NOT USABLE" in result_str or
+                        "QUALITY: NEEDS_RETRY" in result_str or
+                        ("Insufficient Responses" in result_str and not has_success)
+                    )
+                    
+                    if has_success or is_usable:
+                        # At least one farm responded or quality is usable - this is a SUCCESS
+                        # Note: "Could not extract bid details" is not a failure - it just means Market Agent couldn't parse, but Scout succeeded
+                        tool_results_summary.append(f"SUCCESS from tool '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): {result_str}")
+                    elif has_explicit_failure and not has_success:
+                        # Explicit failure indication and no successful farms
                         any_tool_failed = True
                         tool_results_summary.append(f"PARTIAL_FAILURE for '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): All farms had issues, but here's the summary: {result_str}")
-                        logger.warning(f"Scout Agent: All farms failed. Result: {result_str}")
+                        logger.warning(f"Scout/Market Agent: All farms failed. Result: {result_str[:200]}...")
+                    else:
+                        # Ambiguous case - assume success if we have any response
+                        tool_results_summary.append(f"SUCCESS from tool '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): {result_str}")
                 else:
                     # For other tools, use the original failure detection logic
                     # Check for failure keywords in each individual tool result
-                    if "error" in result_str.lower() or \
-                       "failed" in result_str.lower() or \
-                       "timeout" in result_str.lower():
+                    # But exclude informational messages like "Could not extract bid details" which are warnings, not failures
+                    failure_keywords = ["error", "failed", "timeout"]
+                    # Exclude informational messages that are not actual failures
+                    informational_messages = ["could not extract bid details", "market analysis unavailable"]
+                    
+                    # IMPORTANT: If result contains "✓ Available" or success indicators, it's NOT a failure
+                    # even if it contains failure keywords (which might be in the farm's response text)
+                    has_success_indicator = "✓ Available" in result_str or "SUCCESS" in result_str.upper()
+                    
+                    # Check if it's an informational message (not a failure)
+                    is_informational = any(info_msg in result_str.lower() for info_msg in informational_messages)
+                    
+                    # Check for actual failures (but not informational messages or successful responses)
+                    has_failure_keyword = any(keyword in result_str.lower() for keyword in failure_keywords)
+                    
+                    if has_failure_keyword and not is_informational and not has_success_indicator:
                         any_tool_failed = True
                         # Include tool name and ID for better context
                         tool_results_summary.append(f"FAILURE for '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): The request could not be completed.")
-                        logger.warning(f"Detected tool failure in orders node result: {result_str}")
+                        logger.warning(f"Detected tool failure in orders node result: {result_str[:200]}...")
                         
                         if "auth" in result_str.lower():
                             auth_failure = result_str
                     else:
+                        # Success or informational message (not a failure)
                         tool_results_summary.append(f"SUCCESS from tool '{tool_msg.name}' (ID: {tool_msg.tool_call_id}): {result_str}")
 
             context = "\n".join(tool_results_summary)
@@ -459,31 +499,48 @@ class ExchangeGraph:
 
             4.  **If there is no 'Previous tool call result' (i.e., this is the first attempt):**
                 *   Determine if a tool needs to be called to answer the user's question.
-                *   **For order requests with quantity/price, prefer using `scout_then_decide` with timeout_sec={SCOUT_INITIAL_TIMEOUT_SEC} to get a quick initial summary from all farms, then choose the best farm based on the summary.**
-                *   If the user asks about placing an order, you can use `scout_then_decide` first to probe all farms quickly, then use `create_order` with the chosen farm.
+                *   **For competitive bidding or auction requests:**
+                    - If the user asks for "best price", "competitive bidding", "auction", "compare prices", or wants multiple farms to compete, use `conduct_market_auction`.
+                    - This tool runs a multi-round auction where farms compete, and selects the winner based on price (40%), delivery (25%), quality (20%), and performance metrics (15%).
+                    - Example: "I need 200 lbs. Run a competitive auction to get the best price."
+                *   **For simple order requests with quantity/price:**
+                    - **PREFER using `scout_then_market_analyze_then_decide`** - This combines Scout Agent (fast probing) with Market Agent (competitive analysis with scoring criteria). It provides both fast responses AND intelligent market analysis showing price, delivery, quality, and performance metrics.
+                    - If `scout_then_market_analyze_then_decide` is not available, use `scout_then_decide` with timeout_sec={SCOUT_INITIAL_TIMEOUT_SEC} to get a quick initial summary from all farms.
+                    - If the user asks about placing an order, use `scout_then_market_analyze_then_decide` first to get both probe results and market analysis, then use `create_order` with the recommended farm.
                 *   If the user asks about checking the status of an order, use the `get_order_details` tool.
                 *   If further information is needed to call a tool (e.g., missing order ID, quantity, farm), ask the user for clarification.
 
-            5.  **Special handling for scout_then_decide results:**
-                *   The Scout Agent returns a summary showing each farm's status (Available, No response, or Issue).
-                *   **IMPORTANT: For scout_then_decide results, you MUST show the user the complete summary with ALL farm responses.**
+            5.  **Special handling for scout_then_decide and scout_then_market_analyze_then_decide results:**
+                *   These tools return structured summaries showing each farm's status (Available, No response, or Issue).
+                *   **IMPORTANT: For these tool results, you MUST show the user the complete summary with ALL farm responses.**
                 *   The summary format is: "Farm Name: Status - Response/Message"
+                *   **For scout_then_market_analyze_then_decide, the summary includes:**
+                    - Scout results from all farms
+                    - Market Agent analysis with scoring breakdown (if bids were successfully parsed)
+                    - Recommended farm based on market criteria
+                *   **IMPORTANT: If you see "(Could not extract bid details for market analysis)" in the summary:**
+                    - This is NOT a failure - it just means Market Agent couldn't parse the bid format from that farm's response
+                    - The Scout Agent still successfully got the response from that farm
+                    - You should still proceed with the order using the available information
+                    - Show the user the farm's actual response even if Market Agent couldn't parse it
                 *   **Check the QUALITY indicator at the end of the summary:**
                     - If it shows "QUALITY: USABLE" - the result is good enough (at least 2 farms responded)
                     - If it shows "QUALITY: NEEDS_RETRY" - the result needs improvement (less than 2 farms responded)
-                *   **Show the user the full Scout summary** so they can see:
+                *   **Show the user the full summary** so they can see:
                     - Which farms responded and their actual responses (the full text from each farm)
+                    - Market Agent analysis (if available) with scoring criteria and recommendations
                     - Which farms timed out
                     - Which farms had issues and what those issues were
                     - The quality indicator showing if retry is recommended
                 *   **If the summary shows "QUALITY: NEEDS_RETRY"**, inform the user that they can retry with a longer timeout ({SCOUT_RETRY_TIMEOUT_SEC}s) to get more responses.
-                *   **If the summary shows ANY farm with "✓ Available"**, recommend the best option based on the farm responses.
+                *   **If the summary shows ANY farm with "✓ Available"**, recommend the best option based on the farm responses or Market Agent recommendation (if available).
+                *   **If Market Agent analysis is available**, use its recommendation to help the user make a decision.
                 *   **If ALL farms show "⏱ No response" or "✗ Issue"**, show the complete summary and explain what happened to each farm, then suggest:
                     - Retrying with a longer timeout ({SCOUT_RETRY_TIMEOUT_SEC}s) to wait for slower farms
                     - Trying again in a moment
                     - Checking if farm services are running
                     - Using a different approach (e.g., direct farm query)
-                *   **DO NOT summarize or hide the Scout Agent summary - show it to the user so they can see all farm responses.**
+                *   **DO NOT summarize or hide the summary - show it to the user so they can see all farm responses and market analysis.**
 
             Your final response should be a conclusive answer to the user's request, or a clear explanation if the request cannot be fulfilled.
             """
@@ -636,6 +693,8 @@ class ExchangeGraph:
 
             # Track seen content to prevent duplicate yields when nodes produce the same output
             seen_contents = set()
+            final_response = None  # Track the final complete response
+            tool_results_seen = set()  # Track tool results to stream individual farm responses
             
             # Stream events from the graph using astream_events (LangGraph v2 API)
             # This provides fine-grained control over streaming, emitting events for:
@@ -643,6 +702,83 @@ class ExchangeGraph:
             # - Intermediate outputs (on_chain_stream)
             async for event in self.graph.astream_events(state, {"configurable": {"thread_id": uuid.uuid4()}}, version="v2"):
                 logger.debug(f"Event: {event}")
+                
+                # Stream individual farm responses from tool execution (for group chat effect)
+                if event["event"] == "on_tool_end":
+                    tool_name = event.get("name", "")
+                    data = event.get("data", {})
+                    
+                    # For scout tools, extract individual farm responses for streaming
+                    if tool_name in ("scout_then_market_analyze_then_decide", "scout_then_decide", "conduct_market_auction"):
+                        if "output" in data:
+                            # Get the actual tool output - it might be a ToolMessage object or a string
+                            output_obj = data["output"]
+                            
+                            # Extract content from ToolMessage if it's an object
+                            if hasattr(output_obj, 'content'):
+                                tool_output = str(output_obj.content)
+                            elif isinstance(output_obj, str):
+                                tool_output = output_obj
+                            else:
+                                tool_output = str(output_obj)
+                            
+                            # Clean up tool output - remove any wrapper text like "content="
+                            # Extract the actual content if it's wrapped in a string representation
+                            import re
+                            content_match = re.search(r'content=["\']([^"\']+)["\']', tool_output)
+                            if content_match:
+                                tool_output = content_match.group(1)
+                            
+                            # Also handle escaped newlines
+                            tool_output = tool_output.replace('\\n', '\n')
+                            
+                            logger.info(f"Extracting farm responses from tool output (length: {len(tool_output)})")
+                            
+                            # Split by newline and look for lines starting with farm names
+                            all_matches = []
+                            lines = tool_output.split('\n')
+                            
+                            for line in lines:
+                                line = line.strip()
+                                if not line:
+                                    continue
+                                
+                                # Look for lines starting with farm names (with or without markdown)
+                                for farm in ['Brazil', 'Colombia', 'Vietnam']:
+                                    # Match patterns like:
+                                    # "Brazil: ✓ Available - ..."
+                                    # "- **Brazil**: ✓ Available - ..."
+                                    # "**Brazil**: ✓ Available - ..."
+                                    pattern = rf'^(?:-?\s*)?\*\*?{farm}\*\*?:?\s*([✓✗⏱🔒].*?)(?=\n\*\*?(?:Brazil|Colombia|Vietnam)|$)'
+                                    match = re.search(pattern, line, re.IGNORECASE)
+                                    
+                                    if match or line.startswith(farm + ':') or line.startswith('**' + farm + '**:') or line.startswith('- **' + farm + '**:'):
+                                        # Clean up the line - remove markdown
+                                        clean_line = re.sub(r'\*\*?', '', line).strip()
+                                        
+                                        # Ensure it starts with farm name
+                                        if not clean_line.startswith(farm + ':'):
+                                            # Try to extract the farm response part
+                                            farm_match = re.search(rf'{farm}:\s*([✓✗⏱🔒].*)', clean_line, re.IGNORECASE)
+                                            if farm_match:
+                                                clean_line = f"{farm}: {farm_match.group(1).strip()}"
+                                            else:
+                                                # Fallback: just use the line as-is
+                                                pass
+                                        
+                                        if clean_line and clean_line not in tool_results_seen:
+                                            tool_results_seen.add(clean_line)
+                                            all_matches.append(clean_line)
+                                            logger.info(f"Found farm response: {clean_line[:80]}...")
+                                        break
+                            
+                            # Yield all individual farm responses
+                            for farm_response in all_matches:
+                                logger.info(f"Streaming individual farm response: {farm_response[:100]}...")
+                                yield farm_response
+                            
+                            if not all_matches:
+                                logger.warning(f"No farm responses extracted from tool output. Output preview: {tool_output[:200]}...")
                 
                 # Filter for "on_chain_stream" events which contain intermediate node outputs
                 # These events fire when a node produces output during execution, allowing
@@ -673,6 +809,16 @@ class ExchangeGraph:
                                 if isinstance(message, AIMessage) and message.content:
                                     content = message.content.strip()
                                     
+                                    # Store the final response (last AIMessage from orders node)
+                                    # But don't yield it here - we'll yield it at the end with proper formatting
+                                    if node_name == NodeStates.ORDERS:
+                                        final_response = content
+                                        # Don't yield intermediate AIMessage from orders node
+                                        # We'll yield the final formatted response at the end
+                                        logger.info(f"Captured final response from '{node_name}', will yield at end: {content[:100]}...")
+                                        continue
+                                    
+                                    # For other nodes, yield immediately
                                     # Deduplicate: Skip if we've already yielded this exact content
                                     if content in seen_contents:
                                         logger.info(f"Skipping duplicate content from '{node_name}': {content}")
@@ -682,6 +828,29 @@ class ExchangeGraph:
                                     seen_contents.add(content)
                                     logger.info(f"Yielding message from '{node_name}': {content}")
                                     yield message.content
+                
+                # Also capture final state on completion to ensure we have the complete response
+                if event["event"] == "on_chain_end" and event.get("name") == "":
+                    # Graph execution completed - extract final messages
+                    data = event.get("data", {})
+                    if "output" in data and "messages" in data["output"]:
+                        for message in data["output"]["messages"]:
+                            if isinstance(message, AIMessage) and message.content:
+                                final_content = message.content.strip()
+                                if final_content:
+                                    final_response = final_content
+                                    logger.info(f"Captured final response from chain end: {final_content[:100]}...")
+            
+            # Yield the final response at the very end (same format as non-streaming)
+            # This ensures it appears after all intermediate results
+            if final_response:
+                # Check if we've already yielded this exact content
+                if final_response not in seen_contents:
+                    seen_contents.add(final_response)
+                    logger.info(f"Yielding final formatted response at end (same format as non-streaming)")
+                    yield final_response
+                else:
+                    logger.info(f"Final response already yielded, skipping duplicate")
 
         except ValueError as ve:
             logger.error(f"ValueError in streaming_serve method: {ve}")

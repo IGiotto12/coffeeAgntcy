@@ -1,58 +1,42 @@
 {
   "buyer": [
     {
-      "prompt": "What yield do the farms have?",
-      "description": "Uses broadcast communication to query all farms for their yield information."
+      "prompt": "I want to order 200 lbs at $0.50/lb. Check all farms and pick the best one.",
+      "description": "Uses broadcast communication to identify farms with sufficient inventory."
     },
     {
-      "prompt": "I'd like to buy 200 lbs quantity of coffee and who can fulfill it?",
-      "description": "Uses broadcast communication to identify farms with sufficient inventory to fulfill the request."
-    },
-    {
-      "prompt": "What is the current inventory for Brazil farm?",
-      "description": "With Identity Authentication enabled, this prompt will intentionally fail because the Brazil farm does not have a verified Identity badge. Uses direct communication with the Brazil farm."
-    },
-    {
-      "prompt": "What is the current inventory for Colombia farm?",
-      "description": "With Identity TBAC enabled, this prompt verifies agent-level policies. Uses direct communication with the Colombia farm."
-    },
-    {
-      "prompt": "What is the current inventory for Vietnam farm?",
-      "description": "Uses direct communication with the Vietnam farm to retrieve its current inventory."
-    }
-  ],
-  "purchaser": [
-    {
-      "prompt": "I'd like to buy 200 lbs quantity of coffee at USD 500 price from Colombia",
-      "description": "With Identity TBAC enabled, this prompt verifies tool-level policies. Uses direct communication with the Colombia farm."
+      "prompt": "I want to order 150 lbs at $0.52/lb. Check all farms and pick the best one.",
+      "description": "Uses broadcast communication to query all farms for their availability."
     }
   ],
   "scout": [
     {
-      "prompt": "I need 50 lbs of coffee at $0.50 per lb. Which farm can fulfill this quickly?",
-      "description": "Uses Scout Agent to probe all farms in parallel with a 10-second timeout per farm. Returns a summary of which farms responded, timed out, or errored, allowing quick decision-making without waiting for slow farms."
-    },
-    {
-      "prompt": "Can you find me 100 lbs of coffee at $0.55/lb? I need it fast.",
-      "description": "Demonstrates Scout Agent's response-time optimization by probing Brazil, Colombia, and Vietnam simultaneously. The Scout returns a summary within 10 seconds per farm, enabling the supervisor to choose the best available option quickly."
-    },
-    {
       "prompt": "I want to order 75 lbs at $0.48/lb. Check all farms and pick the best one.",
-      "description": "Scout Agent probes all farms in parallel. If a farm times out or errors, it's excluded from consideration. The supervisor then selects from farms that responded successfully within the 10-second timeout window."
+      "description": "Shows Scout Agent parallel probing with automatic retry mechanism"
     },
     {
-      "prompt": "Need 150 lbs of coffee at $0.52 per pound. Which farms are available right now?",
-      "description": "Scout Agent performs parallel probes with timeout handling. Farms that respond within 10 seconds are included in the summary; slow or unresponsive farms are marked as timeout, allowing immediate decision-making."
-    },
-    {
-      "prompt": "I prefer Colombia, but check all farms for 80 lbs at $0.50/lb availability",
-      "description": "Scout Agent probes all farms in parallel, with preference for Colombia. If Colombia responds successfully, it's preferred; otherwise, the supervisor can choose from other available farms based on the Scout summary."
+      "prompt": "I want to order 100 lbs at $0.55/lb. Check all farms and pick the best one.",
+      "description": "Demonstrates Scout Agent with automatic timeout escalation (2s -> 5s -> 10s)"
     }
   ],
   "streaming_prompts": [
     {
-      "prompt": "What yield do the farms have?",
-      "description": "Uses broadcast communication with streaming to query all farms for their yield information and streams responses as they arrive."
+      "prompt": "I want to order 200 lbs at $0.50/lb. Check all farms and pick the best one.",
+      "description": "Shows Scout Agent and Market Agent with streaming - streams responses as they arrive with automatic retry mechanism"
+    },
+    {
+      "prompt": "I want to order 150 lbs at $0.52/lb. Check all farms and pick the best one.",
+      "description": "Demonstrates streaming with Scout Agent parallel probing and Market Agent analysis (streams chunks progressively)"
+    }
+  ],
+  "market_auction": [
+    {
+      "prompt": "I want to order 200 lbs at $0.50/lb. Check all farms and pick the best one.",
+      "description": "Shows Market Agent scoring analysis with performance metrics (only displayed when quality is USABLE)"
+    },
+    {
+      "prompt": "I want to order 150 lbs at $0.50/lb. Check all farms and pick the best one.",
+      "description": "Demonstrates Market Agent weighted scoring (price 40%, delivery 25%, quality 20%, performance 15%)"
     }
   ]
 }
